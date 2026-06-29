@@ -1,22 +1,22 @@
 from naoqi import ALProxy
+import time
 
-robot_ip = "192.168.0.101"
-port = 9559
-
+ROBOT_IP = "192.168.0.101"
+PORT= 9559
+"""
 tts = ALProxy("ALTextToSpeech", robot_ip, port)
 tts.say("Hello Aubrey")
 
 """
-from naoqi import ALProxy
-import time
-
-ROBOT_IP = "192.168.1.100"   # Replace with your Pepper's IP
-PORT = 9559
 
 tts = ALProxy("ALTextToSpeech", ROBOT_IP, PORT)
 asr = ALProxy("ALSpeechRecognition", ROBOT_IP, PORT)
 memory = ALProxy("ALMemory", ROBOT_IP, PORT)
 
+try:
+    asr.unsubscribe("WeAreDemo")
+except:
+    pass
 # English recognition
 asr.setLanguage("English")
 
@@ -28,7 +28,7 @@ asr.setVocabulary(vocabulary, False)
 
 # Introduce herself
 tts.say("Hello! My name is Pepper.")
-tts.say("I'm a humanoid robot developed to interact with people.")
+tts.say("Welcome to the Human-Centered robotics lab at Penn State University.")
 tts.say("When you say 'we are', I'll finish the phrase.")
 
 # Start speech recognition
@@ -56,4 +56,3 @@ except KeyboardInterrupt:
 
 finally:
     asr.unsubscribe("PennStateDemo")
-"""
