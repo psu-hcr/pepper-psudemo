@@ -13,10 +13,7 @@ tts = ALProxy("ALTextToSpeech", ROBOT_IP, PORT)
 asr = ALProxy("ALSpeechRecognition", ROBOT_IP, PORT)
 memory = ALProxy("ALMemory", ROBOT_IP, PORT)
 
-try:
-    asr.unsubscribe("WeAreDemo")
-except:
-    pass
+
 # English recognition
 asr.setLanguage("English")
 
@@ -43,11 +40,28 @@ try:
         if data and len(data) >= 2:
             word = data[0]
             confidence = data[1]
+            print("Heard:", word, confidence)
 
             if word == "we are" and confidence > 0.45:
                 print("Recognized:", word)
                 tts.say("Penn State!")
                 time.sleep(2)
+            elif word == "hug me" and confidence >0.45:
+                tts.say("Love you, Aubrey")
+                """
+                Safe 'hug-like' motion (lean forward slightly)
+                """
+                motion.setStiffnesses("Body", 1.0)
+
+                # Lean forward gently (safe range)
+                motion.moveTorso(0.05, 0.0, 0.0)  # small forward lean
+
+                tts.say("Here is a virtual hug!")
+
+                time.sleep(2)
+
+                # Return to neutral
+                motion.moveTorso(0.0, 0.0, 0.0)
 
         time.sleep(0.2)
 
