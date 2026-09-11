@@ -46,22 +46,6 @@ try:
                 print("Recognized:", word)
                 tts.say("Penn State!")
                 time.sleep(2)
-            elif word == "hug me" and confidence >0.45:
-                tts.say("Love you, Aubrey")
-                """
-                Safe 'hug-like' motion (lean forward slightly)
-                """
-                motion.setStiffnesses("Body", 1.0)
-
-                # Lean forward gently (safe range)
-                motion.moveTorso(0.05, 0.0, 0.0)  # small forward lean
-
-                tts.say("Here is a virtual hug!")
-
-                time.sleep(2)
-
-                # Return to neutral
-                motion.moveTorso(0.0, 0.0, 0.0)
 
         time.sleep(0.2)
 
