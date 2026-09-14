@@ -13,6 +13,12 @@ tts = ALProxy("ALTextToSpeech", ROBOT_IP, PORT)
 asr = ALProxy("ALSpeechRecognition", ROBOT_IP, PORT)
 memory = ALProxy("ALMemory", ROBOT_IP, PORT)
 
+motion = ALProxy("ALMotion", ROBOT_IP, PORT)
+posture = ALProxy("ALRobotPosture", ROBOT_IP, PORT)
+
+# Wake Pepper and put her in an upright standing posture
+motion.wakeUp()
+posture.goToPosture("StandInit", 0.8)
 
 # English recognition
 asr.setLanguage("English")
