@@ -265,11 +265,6 @@ Then run:
 python2.7 hellopepper.py
 ```
 
-If `hellopepper.py` requires Pepper's IP address as a command-line argument, use:
-
-```bash
-python2.7 hellopepper.py <PEPPER_IP_ADDRESS>
-```
 
 ---
 

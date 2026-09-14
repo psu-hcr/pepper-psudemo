@@ -24,8 +24,8 @@ vocabulary = ["we are"]
 asr.setVocabulary(vocabulary, False)
 
 # Introduce herself
-tts.say("Hello! My name is Pepper.")
-tts.say("Welcome to the Human-Centered robotics lab at Penn State University.")
+#tts.say("Hello! My name is Pepper.")
+#tts.say("Welcome to the Human-Centered robotics lab at Penn State University.")
 tts.say("When you say 'we are', I'll finish the phrase.")
 
 # Start speech recognition
@@ -49,8 +49,31 @@ try:
 
         time.sleep(0.2)
 
+
 except KeyboardInterrupt:
-    print("Stopping...")
+    print("Demo interrupted by a user via keyboard.")
 
 finally:
-    asr.unsubscribe("PennStateDemo")
+    print("Stopping speech recognition...")
+
+    try:
+        asr.unsubscribe("PennStateDemo")
+    except:
+        pass
+
+    try:
+        asr.pause(True)
+    except:
+        pass
+    """
+    print("Putting Pepper in rest mode...")
+
+    try:
+        motion = ALProxy("ALMotion", ROBOT_IP, PORT)
+        motion.rest()
+    except:
+        pass
+    """
+    print("Demo stopped.")
+
+    
