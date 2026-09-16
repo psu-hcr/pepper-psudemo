@@ -11,193 +11,440 @@ Pepper:
   - Turns its head toward the person who says "we are"
   - Responds to a touch on its right hand with a handshake motion
   - Recognizes "high five" and raises its right hand
-  - Runs until Ctrl+C
-
-This polls ALMemory for speech, touch, and sound localization instead of
-registering ALBroker/ALModule event callbacks -- those callbacks require
-Pepper to open a new connection back into this machine, which doesn't
-reliably work in this environment. Polling only makes outbound calls, same
-as everything else here.
+  - Safely stops and releases stiffness on Ctrl+C
 
 NAOqi:
   Pepper NAOqi 2.5.x
   Python 2.7
 """
 
-from naoqi import ALProxy
+from naoqi import ALProxy, ALModule, ALBroker
 import time
 import math
 import sys
 
 
-ROBOT_IP = sys.argv[1] if len(sys.argv) > 1 else "192.168.0.101"
+# ---------------------------------------------------------------------------
+# Robot configuration
+# ---------------------------------------------------------------------------
+
+ROBOT_IP = "192.168.0.101"
 PORT = 9559
 
-RARM_JOINTS = [
-    "RShoulderPitch",
-    "RShoulderRoll",
-    "RElbowYaw",
-    "RElbowRoll",
-    "RWristYaw"
-]
-
-REST_ANGLES = [1.4, -0.1, 1.2, 0.5, 0.0]
-HANDSHAKE_ANGLES = [1.0, -0.2, 1.5, 0.8, 0.0]
-HIGH_FIVE_ANGLES = [-1.0, -0.25, 1.3, 0.6, 0.0]
-
-TOUCH_KEYS = [
-    "HandRightBackTouched",
-    "HandRightLeftTouched",
-    "HandRightRightTouched"
-]
-
-VOCABULARY = ["we are", "high five"]
-ASR_NAME = "RADDDemoASR"
-
 
 # ---------------------------------------------------------------------------
-# Introduction
+# Demo module
 # ---------------------------------------------------------------------------
 
-def introduce(motion, tts, posture):
+class PepperDemo(ALModule):
 
-    print "Pepper is introducing itself..."
+    def __init__(self, name):
+        ALModule.__init__(self, name)
 
-    motion.wakeUp()
+        self.motion = ALProxy("ALMotion", ROBOT_IP, PORT)
+        self.tts = ALProxy("ALTextToSpeech", ROBOT_IP, PORT)
+        self.asr = ALProxy("ALSpeechRecognition", ROBOT_IP, PORT)
+        self.memory = ALProxy("ALMemory", ROBOT_IP, PORT)
+        self.sound = ALProxy("ALSoundLocalization", ROBOT_IP, PORT)
+        self.posture = ALProxy("ALRobotPosture", ROBOT_IP, PORT)
 
-    try:
-        posture.goToPosture("StandInit", 0.8)
-    except Exception:
-        pass
+        self.last_sound_azimuth = 0.0
+        self.last_sound_time = 0.0
 
-    motion.setStiffnesses("RArm", 1.0)
+        # Subscribe to speech recognition.
+        self.memory.subscribeToEvent(
+            "WordRecognized",
+            name,
+            "onWordRecognized"
+        )
 
-    # Start the wave in the background so speech and motion occur
-    # simultaneously.
-    wave_id = motion.post.angleInterpolation(
-        RARM_JOINTS,
-        [
-            [1.4, 1.1, 1.1, 1.1, 1.4],
-            [-0.2, -0.4, -0.4, -0.4, -0.2],
-            [1.2, 1.2, 1.2, 1.2, 1.2],
-            [0.7, 0.9, 0.7, 0.9, 0.7],
-            [0.0, 0.5, -0.5, 0.5, 0.0]
-        ],
-        [
-            [0.8, 1.2, 1.6, 2.0, 2.4],
-            [0.8, 1.2, 1.6, 2.0, 2.4],
-            [0.8, 1.2, 1.6, 2.0, 2.4],
-            [0.8, 1.2, 1.6, 2.0, 2.4],
-            [0.8, 1.2, 1.6, 2.0, 2.4]
-        ],
-        True
-    )
+        # Subscribe to right-hand touch events.
+        self.memory.subscribeToEvent(
+            "HandRightBackTouched",
+            name,
+            "onRightHandTouched"
+        )
 
-    tts.say(
-        "Hello! I am Pepper. "
-        "I am from the Human-Centered Robotics Lab "
-        "at Penn State."
-    )
+        self.memory.subscribeToEvent(
+            "HandRightLeftTouched",
+            name,
+            "onRightHandTouched"
+        )
 
-    try:
-        motion.wait(wave_id, 0)
-    except Exception:
-        pass
+        self.memory.subscribeToEvent(
+            "HandRightRightTouched",
+            name,
+            "onRightHandTouched"
+        )
 
-    lower_right_arm(motion)
+        # Subscribe to sound localization.
+        self.memory.subscribeToEvent(
+            "ALSoundLocalization/SoundLocated",
+            name,
+            "onSoundLocated"
+        )
 
+        # Set up speech vocabulary.
+        self.asr.setLanguage("English")
 
-def lower_right_arm(motion):
+        vocabulary = [
+            "we are",
+            "high five"
+        ]
 
-    try:
-        motion.angleInterpolationWithSpeed(RARM_JOINTS, REST_ANGLES, 0.2)
-    except Exception:
-        pass
+        self.asr.setVocabulary(vocabulary, False)
 
+    # -----------------------------------------------------------------------
+    # Introduction
+    # -----------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
-# Speech recognition
-# ---------------------------------------------------------------------------
+    def introduce(self):
 
-def turn_toward_speaker(motion, memory):
+        print "Pepper is introducing itself..."
 
-    try:
-        data = memory.getData("ALSoundLocalization/SoundLocated")
-    except Exception:
-        return
+        # Wake up and prepare Pepper.
+        self.motion.wakeUp()
 
-    try:
-        azimuth = data[1][0]
-        confidence = data[1][2]
-    except Exception:
-        return
+        try:
+            self.posture.goToPosture("StandInit", 0.8)
+        except Exception:
+            pass
 
-    if confidence < 0.2:
-        print "No recent sound localization available."
-        return
+        # Start with the right arm down.
+        self.motion.setStiffnesses("RArm", 1.0)
 
-    print "Turning head toward speaker: %.1f degrees" % (
-        math.degrees(azimuth)
-    )
+        # Start the wave in the background so speech and motion occur
+        # simultaneously.
+        wave_id = self.motion.post.angleInterpolation(
+            ["RShoulderPitch",
+             "RShoulderRoll",
+             "RElbowYaw",
+             "RElbowRoll",
+             "RWristYaw"],
 
-    max_yaw = math.radians(80.0)
+            [
+                [1.4, 1.1, 1.1, 1.1, 1.4],
+                [-0.2, -0.4, -0.4, -0.4, -0.2],
+                [1.2, 1.2, 1.2, 1.2, 1.2],
+                [0.7, 0.9, 0.7, 0.9, 0.7],
+                [0.0, 0.5, -0.5, 0.5, 0.0]
+            ],
 
-    if azimuth > max_yaw:
-        azimuth = max_yaw
+            [
+                [0.8, 1.2, 1.6, 2.0, 2.4],
+                [0.8, 1.2, 1.6, 2.0, 2.4],
+                [0.8, 1.2, 1.6, 2.0, 2.4],
+                [0.8, 1.2, 1.6, 2.0, 2.4],
+                [0.8, 1.2, 1.6, 2.0, 2.4]
+            ],
 
-    if azimuth < -max_yaw:
-        azimuth = -max_yaw
+            True
+        )
 
-    motion.setStiffnesses("Head", 1.0)
-    motion.angleInterpolationWithSpeed(["HeadYaw"], [azimuth], 0.25)
+        # Speech occurs while the wave is happening.
+        self.tts.say(
+            "Hello! I am Pepper. "
+            "I am from the Human-Centered Robotics Lab "
+            "at Penn State."
+        )
 
+        # Wait for the wave to finish.
+        try:
+            self.motion.wait(wave_id, 0)
+        except Exception:
+            pass
 
-# ---------------------------------------------------------------------------
-# Right-hand touch / handshake
-# ---------------------------------------------------------------------------
+        # Return right arm to a comfortable position.
+        self.lower_right_arm()
 
-def handshake(motion, tts):
+    # -----------------------------------------------------------------------
+    # Speech recognition
+    # -----------------------------------------------------------------------
 
-    print "Right hand touched -- handshake!"
+    def start_speech_recognition(self):
+        print "Starting speech recognition..."
 
-    motion.setStiffnesses("RArm", 1.0)
+        self.asr.subscribe("PepperDemoASR")
 
-    motion.angleInterpolationWithSpeed(RARM_JOINTS, HANDSHAKE_ANGLES, 0.25)
+    def stop_speech_recognition(self):
+        try:
+            self.asr.unsubscribe("PepperDemoASR")
+        except Exception:
+            pass
 
-    # Three gentle handshake motions.
-    motion.angleInterpolation(
-        "RElbowRoll",
-        [0.65, 0.85, 0.65, 0.85, 0.65],
-        [0.3, 0.6, 0.9, 1.2, 1.5],
-        True
-    )
+    def onWordRecognized(self, event_name, value, subscriber_identifier):
 
-    tts.say("Nice to meet you!")
+        if not value:
+            return
 
-    # Keep the hand held out for a moment so a person actually has time to
-    # grab and shake it, instead of retracting immediately.
-    time.sleep(3)
+        try:
+            word = value[0]
+            confidence = value[1]
+        except Exception:
+            return
 
-    lower_right_arm(motion)
+        word = word.lower()
 
+        print "Recognized: %s (confidence %.2f)" % (
+            word,
+            confidence
+        )
 
-# ---------------------------------------------------------------------------
-# High five
-# ---------------------------------------------------------------------------
+        # Ignore low-confidence recognition.
+        if confidence < 0.35:
+            return
 
-def raise_right_hand(motion, tts):
+        if word == "we are":
 
-    print "High five!"
+            print "Responding to 'we are'"
 
-    motion.setStiffnesses("RArm", 1.0)
+            # First turn toward the person who spoke.
+            self.turn_toward_speaker()
 
-    motion.angleInterpolationWithSpeed(RARM_JOINTS, HIGH_FIVE_ANGLES, 0.25)
+            # Then complete the phrase.
+            self.tts.say("Penn State")
 
-    tts.say("High five!")
+        elif word == "high five":
 
-    time.sleep(3.0)
+            print "High five!"
 
-    lower_right_arm(motion)
+            self.raise_right_hand()
+
+    # -----------------------------------------------------------------------
+    # Sound localization
+    # -----------------------------------------------------------------------
+
+    def onSoundLocated(self, event_name, value, subscriber_identifier):
+
+        try:
+            # SoundLocated format:
+            #
+            # [
+            #   [time_sec, time_usec],
+            #   [azimuth, elevation, confidence],
+            #   [head position in torso frame],
+            #   [head position in robot frame]
+            # ]
+            #
+            # Azimuth is in radians.
+
+            azimuth = value[1][0]
+            confidence = value[1][2]
+
+            if confidence > 0.2:
+                self.last_sound_azimuth = azimuth
+                self.last_sound_time = time.time()
+
+        except Exception:
+            pass
+
+    def turn_toward_speaker(self):
+
+        # Only use a recently localized sound.
+        if time.time() - self.last_sound_time > 2.0:
+            print "No recent sound localization available."
+            return
+
+        azimuth = self.last_sound_azimuth
+
+        print "Turning head toward speaker: %.1f degrees" % (
+            math.degrees(azimuth)
+        )
+
+        # Limit the motion to a reasonable range.
+        max_yaw = math.radians(80.0)
+
+        if azimuth > max_yaw:
+            azimuth = max_yaw
+
+        if azimuth < -max_yaw:
+            azimuth = -max_yaw
+
+        self.motion.setStiffnesses("Head", 1.0)
+
+        self.motion.angleInterpolationWithSpeed(
+            ["HeadYaw"],
+            [azimuth],
+            0.25
+        )
+
+    # -----------------------------------------------------------------------
+    # Right-hand touch / handshake
+    # -----------------------------------------------------------------------
+
+    def onRightHandTouched(
+            self,
+            event_name,
+            value,
+            subscriber_identifier):
+
+        # Only respond when the hand becomes touched.
+        if value != 1.0:
+            return
+
+        print "Right hand touched -- handshake!"
+
+        self.handshake()
+
+    def handshake(self):
+
+        self.motion.setStiffnesses("RArm", 1.0)
+
+        # Move the arm into a handshake position.
+        self.motion.angleInterpolationWithSpeed(
+            [
+                "RShoulderPitch",
+                "RShoulderRoll",
+                "RElbowYaw",
+                "RElbowRoll",
+                "RWristYaw"
+            ],
+            [
+                1.0,
+                -0.2,
+                1.5,
+                0.8,
+                0.0
+            ],
+            0.25
+        )
+
+        # Three gentle handshake motions.
+        self.motion.angleInterpolation(
+            "RElbowRoll",
+            [0.65, 0.85, 0.65, 0.85, 0.65],
+            [0.3, 0.6, 0.9, 1.2, 1.5],
+            True
+        )
+
+        self.lower_right_arm()
+
+    # -----------------------------------------------------------------------
+    # High five
+    # -----------------------------------------------------------------------
+
+    def raise_right_hand(self):
+
+        self.motion.setStiffnesses("RArm", 1.0)
+
+        # Raise right hand above shoulder height.
+        self.motion.angleInterpolationWithSpeed(
+            [
+                "RShoulderPitch",
+                "RShoulderRoll",
+                "RElbowYaw",
+                "RElbowRoll",
+                "RWristYaw"
+            ],
+            [
+                -1.0,
+                -0.25,
+                1.3,
+                0.6,
+                0.0
+            ],
+            0.25
+        )
+
+        # Keep hand raised for a moment.
+        time.sleep(2.0)
+
+        self.lower_right_arm()
+
+    # -----------------------------------------------------------------------
+    # Arm reset
+    # -----------------------------------------------------------------------
+
+    def lower_right_arm(self):
+
+        try:
+            self.motion.angleInterpolationWithSpeed(
+                [
+                    "RShoulderPitch",
+                    "RShoulderRoll",
+                    "RElbowYaw",
+                    "RElbowRoll",
+                    "RWristYaw"
+                ],
+                [
+                    1.4,
+                    -0.1,
+                    1.2,
+                    0.5,
+                    0.0
+                ],
+                0.2
+            )
+        except Exception:
+            pass
+
+    # -----------------------------------------------------------------------
+    # Safe shutdown
+    # -----------------------------------------------------------------------
+
+    def safe_shutdown(self):
+
+        print "Stopping Pepper demo..."
+
+        try:
+            self.stop_speech_recognition()
+        except Exception:
+            pass
+
+        try:
+            self.memory.unsubscribeToEvent(
+                "WordRecognized",
+                self.getName()
+            )
+        except Exception:
+            pass
+
+        try:
+            self.memory.unsubscribeToEvent(
+                "HandRightBackTouched",
+                self.getName()
+            )
+        except Exception:
+            pass
+
+        try:
+            self.memory.unsubscribeToEvent(
+                "HandRightLeftTouched",
+                self.getName()
+            )
+        except Exception:
+            pass
+
+        try:
+            self.memory.unsubscribeToEvent(
+                "HandRightRightTouched",
+                self.getName()
+            )
+        except Exception:
+            pass
+
+        try:
+            self.memory.unsubscribeToEvent(
+                "ALSoundLocalization/SoundLocated",
+                self.getName()
+            )
+        except Exception:
+            pass
+
+        # Stop any outstanding motion tasks.
+        try:
+            self.motion.killTasks()
+        except Exception:
+            pass
+
+        # Release stiffness so Pepper's motors enter a safe/rest state.
+        try:
+            self.motion.rest()
+        except Exception:
+            try:
+                self.motion.setStiffnesses("Body", 0.0)
+            except Exception:
+                pass
 
 
 # ---------------------------------------------------------------------------
@@ -206,135 +453,65 @@ def raise_right_hand(motion, tts):
 
 if __name__ == "__main__":
 
-    print "Connecting to Pepper at %s:%d" % (ROBOT_IP, PORT)
-
-    motion = ALProxy("ALMotion", ROBOT_IP, PORT)
-    tts = ALProxy("ALTextToSpeech", ROBOT_IP, PORT)
-    asr = ALProxy("ALSpeechRecognition", ROBOT_IP, PORT)
-    memory = ALProxy("ALMemory", ROBOT_IP, PORT)
-    posture = ALProxy("ALRobotPosture", ROBOT_IP, PORT)
-    life = ALProxy("ALAutonomousLife", ROBOT_IP, PORT)
-    background_movement = ALProxy("ALBackgroundMovement", ROBOT_IP, PORT)
-
-    # Disabled once here and left disabled -- Autonomous Life (Background
-    # Movement, Basic Awareness, etc.) otherwise fights any pose we hold
-    # manually.
-    if life.getState() != "disabled":
-        life.setState("disabled")
-    print "ALAutonomousLife state: %s" % life.getState()
-
-    background_movement.setEnabled(False)
-
-    # Basic Awareness can have its own enable flag independent of the
-    # Autonomous Life state on some NAOqi versions, and Breathing is a
-    # separate idle-sway animation on ALMotion that Autonomous Life doesn't
-    # control at all -- turn both off explicitly so nothing but sound
-    # localization and the gestures below can move the robot.
-    try:
-        basic_awareness = ALProxy("ALBasicAwareness", ROBOT_IP, PORT)
-        basic_awareness.setEnabled(False)
-    except Exception as e:
-        print "Could not disable Basic Awareness: %s" % e
+    broker = None
+    demo = None
 
     try:
-        motion.setBreathEnabled("Body", False)
-    except Exception as e:
-        print "Could not disable breathing: %s" % e
 
-    # Guard against a leftover subscription from a previous run, and pause
-    # the ASR engine so setLanguage/setVocabulary are allowed to run (NAOqi
-    # rejects those calls while the engine is actively subscribed).
-    try:
-        asr.unsubscribe(ASR_NAME)
-    except Exception:
-        pass
+        print "Connecting to Pepper at %s:%d" % (ROBOT_IP, PORT)
 
-    asr.pause(True)
-    asr.setLanguage("English")
-    asr.setVocabulary(VOCABULARY, False)
-    asr.pause(False)
+        # Create a local broker so that Pepper can send event callbacks
+        # to this Python process.
+        broker = ALBroker(
+            "PepperDemoBroker",
+            "0.0.0.0",
+            0,
+            ROBOT_IP,
+            PORT
+        )
 
-    asr.subscribe(ASR_NAME)
+        demo = PepperDemo("PepperDemo")
 
-    # Seed the memory keys we poll so getData() never hits one that doesn't
-    # exist yet.
-    for key in TOUCH_KEYS:
-        try:
-            memory.getData(key)
-        except Exception:
-            memory.insertData(key, 0.0)
+        demo.introduce()
 
-    try:
-        memory.getData("WordRecognized")
-    except Exception:
-        memory.insertData("WordRecognized", ["", 0.0])
+        demo.start_speech_recognition()
 
-    introduce(motion, tts, posture)
+        print ""
+        print "----------------------------------------"
+        print "Pepper demo is running."
+        print ""
+        print 'Say "we are" for Pepper to respond: "Penn State".'
+        print 'Say "high five" to raise Pepper\'s right hand.'
+        print "Touch Pepper's right hand for a handshake."
+        print ""
+        print "Press Ctrl+C to stop the demo."
+        print "----------------------------------------"
+        print ""
 
-    print ""
-    print "----------------------------------------"
-    print "Pepper demo is running."
-    print ""
-    print 'Say "we are" for Pepper to respond: "Penn State".'
-    print 'Say "high five" to raise Pepper\'s right hand.'
-    print "Touch Pepper's right hand for a handshake."
-    print ""
-    print "Press Ctrl+C to stop the demo."
-    print "----------------------------------------"
-    print ""
-
-    try:
+        # Keep the program alive so that event callbacks can run.
         while True:
-
-            # Check speech recognition.
-            data = memory.getData("WordRecognized")
-
-            if data and len(data) >= 2:
-                word = data[0]
-                confidence = data[1]
-
-                if word:
-                    print "Heard: %s (%.2f)" % (word, confidence)
-
-                    if confidence > 0.35:
-                        if word == "we are":
-                            print "Responding to 'we are'"
-                            turn_toward_speaker(motion, memory)
-                            tts.say("Penn State")
-                        elif word == "high five":
-                            raise_right_hand(motion, tts)
-
-                    # Clear it so the same recognition event doesn't keep
-                    # re-triggering on every loop iteration.
-                    memory.insertData("WordRecognized", ["", 0.0])
-
-            # Check touch.
-            for key in TOUCH_KEYS:
-                if memory.getData(key) == 1.0:
-                    handshake(motion, tts)
-                    memory.insertData(key, 0.0)
-                    break
-
-            time.sleep(0.2)
+            time.sleep(1.0)
 
     except KeyboardInterrupt:
 
         print ""
         print "Demo interrupted by a user via keyboard."
 
+        if demo is not None:
+            demo.safe_shutdown()
+
     except Exception as e:
 
         print "An error occurred:"
         print e
 
+        if demo is not None:
+            demo.safe_shutdown()
+
     finally:
 
-        try:
-            asr.unsubscribe(ASR_NAME)
-        except Exception:
-            pass
-
-        try:
-            motion.killTasks()
-        except Exception:
-            pass
+        if broker is not None:
+            try:
+                broker.shutdown()
+            except Exception:
+                pass
