@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>polar_dashboard</name>
+  <version>0.1.0</version>
+  <description>Live web dashboard for the four Polar H10 heart-rate straps, served from the laptop for a TV browser.</description>
+  <maintainer email="palakchauhan.niyati@gmail.com">Palak</maintainer>
+  <license>MIT</license>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>polar_h10_ros</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <export><build_type>ament_python</build_type></export>
+</package>

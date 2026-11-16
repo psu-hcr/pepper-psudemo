@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>mac_camera</name>
+  <version>0.1.0</version>
+  <description>Publishes the Mac webcam (AVFoundation via OpenCV) as sensor_msgs/Image.</description>
+  <maintainer email="palakchauhan.niyati@gmail.com">Palak</maintainer>
+  <license>MIT</license>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>cv_bridge</exec_depend>
+  <export><build_type>ament_python</build_type></export>
+</package>

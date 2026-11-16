@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<!--
+  package.xml - the ROS package manifest.
+
+  colcon reads this to learn the package name and build type (ament_python),
+  and rosdep reads the *_depend tags to install system dependencies.
+
+  `bleak` is deliberately NOT listed: it has no reliable rosdep key on
+  Humble, so it is installed with pip (see README). Listing a missing key
+  would make `rosdep install` fail.
+-->
+<package format="3">
+  <name>polar_h10_ros</name>
+  <version>0.1.0</version>
+  <description>Publishes Polar H10 heart rate, RR intervals and sensor contact over BLE as standard ROS 2 messages.</description>
+  <maintainer email="palakchauhan.niyati@gmail.com">Palak</maintainer>
+  <license>MIT</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

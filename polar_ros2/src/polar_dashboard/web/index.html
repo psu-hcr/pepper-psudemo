@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Heart rate</title>
+<style>
+  :root {
+    --bg: #0b1016; --panel: #131b24; --line: #223040; --text: #eef3f8; --muted: #8fa3b6;
+    --calm: #46d39a; --elev: #f5b942; --high: #ff5d5d; --off: #5b6b7b;
+    --accent: var(--off);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font-family: -apple-system, "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  body { display: flex; flex-direction: column; padding: 1.6vmin; gap: 1.6vmin; overflow: hidden; }
+  header { display: flex; align-items: center; justify-content: space-between; padding: 0 .6vmin; }
+  h1 { margin: 0; font-size: 3.2vmin; font-weight: 600; letter-spacing: .02em; }
+  .meta { display: flex; align-items: center; gap: 2vmin; color: var(--muted); font-size: 2.4vmin; }
+  .dot { width: 1.6vmin; height: 1.6vmin; border-radius: 50%; background: var(--off); display: inline-block; margin-right: .8vmin; }
+  .dot.on { background: var(--calm); box-shadow: 0 0 1.2vmin var(--calm); }
+  main { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 1.6vmin; }
+  @media (max-aspect-ratio: 1/1) { main { grid-template-columns: 1fr; grid-template-rows: repeat(4, 1fr); } }
+  .card { background: var(--panel); border: .3vmin solid var(--line); border-left: 1.2vmin solid var(--accent);
+    border-radius: 2vmin; padding: 2vmin 2.4vmin; display: flex; flex-direction: column; min-height: 0; position: relative; }
+  .top { display: flex; justify-content: space-between; align-items: baseline; color: var(--muted); font-size: 2.3vmin; }
+  .top .who { color: var(--text); font-weight: 600; font-size: 3vmin; }
+  .badge { font-size: 2vmin; padding: .3vmin 1.2vmin; border-radius: 99vmin; border: .25vmin solid var(--off); color: var(--muted); }
+  .badge.ok { border-color: var(--calm); color: var(--calm); }
+  .badge.warn { border-color: var(--elev); color: var(--elev); }
+  .badge.bad { border-color: var(--high); color: var(--high); }
+  .big { display: flex; align-items: baseline; gap: 1.4vmin; line-height: 1; margin: .6vmin 0; }
+  .bpm { font-size: 12vmin; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--accent); }
+  .unit { font-size: 3vmin; color: var(--muted); }
+  .heart { font-size: 5vmin; color: var(--accent); margin-left: auto; transform-origin: center; }
+  .heart.beat { animation: beat var(--beat, .8s) ease-in-out infinite; }
+  @keyframes beat { 0%, 100% { transform: scale(1); } 12% { transform: scale(1.25); } 30% { transform: scale(1); } }
+  canvas { flex: 1; min-height: 9vmin; width: 100%; display: block; }
+  .stats { display: flex; gap: 3vmin; color: var(--muted); font-size: 2.3vmin; margin-top: .6vmin; }
+  .stats b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .nosig .bpm { color: var(--off); }
+  #banner { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(11,16,22,.9);
+    font-size: 5vmin; color: var(--elev); text-align: center; padding: 4vmin; z-index: 9; }
+  #banner.show { display: flex; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Heart rate</h1>
+  <div class="meta"><span><span class="dot" id="linkdot"></span><span id="linktext">Connecting…</span></span><span id="clock"></span></div>
+</header>
+<main id="grid"></main>
+<div id="banner">Lost connection to the laptop. Retrying…</div>
+<script>
+const grid = document.getElementById('grid');
+const cards = {};
+let cfg = { elevated_bpm: 110, high_bpm: 140 };
+let last = null;
+
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function zone(bpm) {
+  if (bpm == null) return { color: 'var(--off)', label: 'No signal', cls: '' };
+  if (bpm >= cfg.high_bpm) return { color: 'var(--high)', label: 'High', cls: 'bad' };
+  if (bpm >= cfg.elevated_bpm) return { color: 'var(--elev)', label: 'Elevated', cls: 'warn' };
+  return { color: 'var(--calm)', label: 'Normal', cls: 'ok' };
+}
+function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+function ensureCard(s, i) {
+  if (cards[s.name]) return cards[s.name];
+  const el = document.createElement('section');
+  el.className = 'card nosig';
+  el.innerHTML = `
+    <div class="top"><span class="who"></span><span class="badge">…</span></div>
+    <div class="big"><span class="bpm">--</span><span class="unit">BPM</span><span class="heart">♥</span></div>
+    <canvas></canvas>
+    <div class="stats"><span>Avg <b data-k="avg">--</b></span><span>Min <b data-k="min">--</b></span><span>Max <b data-k="max">--</b></span><span>HRV <b data-k="hrv">--</b></span><span class="contact"></span></div>`;
+  grid.appendChild(el);
+  return cards[s.name] = { el, who: el.querySelector('.who'), badge: el.querySelector('.badge'),
+    bpm: el.querySelector('.bpm'), heart: el.querySelector('.heart'), canvas: el.querySelector('canvas'),
+    contact: el.querySelector('.contact'), stat: k => el.querySelector(`[data-k="${k}"]`) };
+}
+
+function drawSpark(canvas, hist, color) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  if (canvas.width !== w * dpr || canvas.height !== h * dpr) { canvas.width = w * dpr; canvas.height = h * dpr; }
+  const g = canvas.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  const span = 120;                       // seconds shown
+  const pts = hist.filter(p => p[0] >= -span);
+  const lo = Math.min(50, ...pts.map(p => p[1])) - 5, hi = Math.max(120, ...pts.map(p => p[1])) + 5;
+  const X = t => w * (1 + t / span), Y = b => h - 4 - (h - 8) * (b - lo) / (hi - lo);
+  g.strokeStyle = css('--line'); g.lineWidth = 1; g.fillStyle = css('--muted'); g.font = `${Math.max(11, h * .12)}px sans-serif`;
+  [cfg.elevated_bpm, cfg.high_bpm].forEach(b => { if (b > lo && b < hi) {
+    g.setLineDash([4, 6]); g.beginPath(); g.moveTo(0, Y(b)); g.lineTo(w, Y(b)); g.stroke(); g.setLineDash([]); g.fillText(b, 2, Y(b) - 3); } });
+  if (pts.length < 2) return;
+  g.strokeStyle = color.startsWith('var(') ? css(color.slice(4, -1)) : color; g.lineWidth = Math.max(2, h * .025); g.lineJoin = 'round'; g.beginPath();
+  pts.forEach((p, i) => { i ? g.lineTo(X(p[0]), Y(p[1])) : g.moveTo(X(p[0]), Y(p[1])); });
+  g.stroke();
+}
+
+function render(data) {
+  last = data; cfg = data.config;
+  document.getElementById('title').textContent = cfg.title || 'Heart rate';
+  document.title = cfg.title || 'Heart rate';
+  data.sensors.forEach((s, i) => {
+    const c = ensureCard(s, i), z = zone(s.bpm);
+    c.el.style.setProperty('--accent', z.color);
+    c.el.classList.toggle('nosig', s.bpm == null);
+    c.who.textContent = s.name.toUpperCase() + (s.device_id ? '  ·  ' + s.device_id : '');
+    c.bpm.textContent = s.bpm == null ? '--' : s.bpm;
+    c.badge.textContent = !s.connected && s.bpm == null ? 'Disconnected' : z.label;
+    c.badge.className = 'badge ' + (!s.connected && s.bpm == null ? 'bad' : z.cls);
+    c.heart.classList.toggle('beat', s.bpm != null);
+    if (s.bpm) c.heart.style.setProperty('--beat', (60 / s.bpm).toFixed(2) + 's');
+    c.stat('avg').textContent = s.avg ?? '--'; c.stat('min').textContent = s.min ?? '--'; c.stat('max').textContent = s.max ?? '--';
+    c.stat('hrv').textContent = s.rmssd_ms == null ? '--' : s.rmssd_ms + ' ms';
+    c.contact.textContent = s.contact === false ? '⚠ Check strap contact' : '';
+    c.contact.style.color = 'var(--elev)';
+    drawSpark(c.canvas, s.history, z.color);
+  });
+}
+
+function tickClock() { document.getElementById('clock').textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
+setInterval(tickClock, 1000); tickClock();
+window.addEventListener('resize', () => last && render(last));
+
+let lastMsg = 0;
+function setLink(on) {
+  document.getElementById('linkdot').className = 'dot' + (on ? ' on' : '');
+  document.getElementById('linktext').textContent = on ? 'Live' : 'Offline';
+  document.getElementById('banner').classList.toggle('show', !on && lastMsg > 0);
+}
+function connect() {
+  const es = new EventSource('/events');
+  es.onmessage = e => { lastMsg = Date.now(); setLink(true); render(JSON.parse(e.data)); };
+  es.onerror = () => setLink(false);   // EventSource retries by itself
+}
+connect();
+setInterval(() => { if (lastMsg && Date.now() - lastMsg > 4000) setLink(false); }, 1000);
+</script>
+</body>
+</html>

@@ -387,3 +387,65 @@ This setup intentionally keeps the NAOqi Python environment separate from modern
 
 Pepper's NAOqi 2.5 Python SDK requires Python 2.7, while modern robotics development tools such as ROS 2 generally use Python 3. If ROS 2 integration is added later, the recommended approach is to keep the NAOqi Python 2.7 process separate and communicate with ROS 2 through an appropriate bridge or inter-process communication mechanism.
 
+
+---
+
+# Polar H10 heart-rate sensors → ROS 2 → dashboard → Pepper
+
+Code lives in [`polar_ros2/`](polar_ros2/). It reads up to four Polar H10 chest straps over Bluetooth, publishes them as ROS 2 topics (`/p1` … `/p4`), and serves a live web dashboard (for a TV beside Pepper). This part uses **Python 3** and is separate from the Python 2.7 / NAOqi 2.5 setup above.
+
+## What to download / install
+
+| What | Why | How |
+|---|---|---|
+| Conda (Miniforge) | environment manager | <https://github.com/conda-forge/miniforge> |
+| ROS 2 Jazzy (RoboStack on macOS, or native apt on Ubuntu 24.04) | topics, launch files | RoboStack: `conda create -n ros2 -c conda-forge -c robostack-jazzy ros-jazzy-desktop python=3.12` |
+| colcon + rosdep | build the workspace | `conda install -n ros2 colcon-common-extensions rosdep` (apt: `python3-colcon-common-extensions`) |
+| `bleak` | Bluetooth LE to the straps | `pip install bleak` |
+| `qi` | NAOqi SDK for Pepper (NAOqi 2.9 and newer) | `pip install qi` |
+| `opencv` (optional) | Mac webcam package `mac_camera` | included in `ros-jazzy-desktop` / `ros-jazzy-vision-opencv` |
+| `pytest` (optional) | tests | `pip install pytest` |
+
+The dashboard needs no extra packages and no internet.
+
+Platform notes:
+- **macOS:** allow Bluetooth for your terminal app (System Settings → Privacy & Security → Bluetooth). Allow incoming connections for Python the first time so a TV can reach the dashboard.
+- **Linux:** needs BlueZ (`sudo apt install bluez`), and the Bluetooth service running.
+- **Windows:** Bluetooth must be on; use a ROS 2 Windows install or WSL (WSL has no Bluetooth by default).
+- The straps only advertise when **worn with wet electrodes**. Close Polar Beat and any phone app that is connected to them first.
+
+## Build and run
+
+```bash
+conda activate ros2
+cd polar_ros2
+colcon build                 # plain build; do not use --symlink-install
+source install/setup.zsh     # or setup.bash
+
+ros2 launch polar_dashboard all.launch.py use_mock:=true   # fake data, no straps needed
+ros2 launch polar_dashboard all.launch.py                  # real straps
+```
+
+Open `http://localhost:8765`, or `http://<computer-ip>:8765` from the TV's browser (same Wi-Fi).
+
+## Finding the straps (works on macOS, Windows and Linux)
+
+Each strap is listed in `polar_ros2/src/polar_h10_ros/config/sensors.yaml` with a `name` (the ROS namespace) and its `device_id`, the part after `Polar H10` in its Bluetooth name (e.g. `18D51C3F`). By default the node **scans for that name**, so the same file works on any computer.
+
+`address` is an optional shortcut that skips the scan:
+- macOS: the CoreBluetooth UUID (only valid on that Mac)
+- Windows / Linux: the Bluetooth MAC, e.g. `A0:9E:1A:12:34:56`
+
+To list nearby straps and their addresses on the current computer: `python polar_ros2/scan.py`. Re-run `colcon build` after editing the yaml.
+
+## Topics
+
+`/p1/polar_h10/heart_rate` … `/p4/…` (`Int32`), plus `rr_intervals`, `sensor_contact` and `connected`. The first three are best-effort QoS, so subscribers must also use best-effort (`ros2 topic echo --qos-reliability best_effort …`).
+
+## Pepper
+
+`python polar_ros2/tools/pepper_check.py <PEPPER_IP>` connects with `qi`, prints version and battery, and has Pepper say hello. This needs a Pepper running NAOqi 2.9 or newer; for NAOqi 2.5 use the Python 2.7 setup at the top of this README. Further integration (a node that reacts to the heart-rate topics) is still to do.
+
+Tests: `cd polar_ros2/src/polar_h10_ros && python -m pytest test`
+
+Full commands: [`polar_ros2/SETUP.md`](polar_ros2/SETUP.md).

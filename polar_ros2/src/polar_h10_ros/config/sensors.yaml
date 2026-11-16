@@ -1,0 +1,19 @@
+# The four Polar H10 straps.
+# `name`      becomes the ROS namespace: /<name>/polar_h10/heart_rate etc.
+# `device_id` is printed on the strap / in its name ("Polar H10 18D51C3F"). Works on every OS.
+# `address`   OPTIONAL shortcut that skips the ~2-5 s scan. Leave "" to auto-find by device_id.
+#             macOS: CoreBluetooth UUID (only valid on that Mac).
+#             Windows/Linux: Bluetooth MAC, e.g. "A0:9E:1A:12:34:56".
+sensors:
+  - name: p1
+    device_id: 18D51C3F
+    address: ""
+  - name: p2
+    device_id: 18D5793E
+    address: ""
+  - name: p3
+    device_id: 18D5173A
+    address: ""
+  - name: p4
+    device_id: 18D25430
+    address: ""
