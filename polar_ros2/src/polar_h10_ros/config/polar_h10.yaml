@@ -1,0 +1,26 @@
+# Parameters for polar_h10_ros, loaded by launch/polar_h10.launch.py.
+# Top-level keys must match the node names set in the launch file.
+# After editing, re-run `colcon build` (or build with --symlink-install once
+# so edits apply without rebuilding).
+
+polar_h10_node:
+  ros__parameters:
+    # Linux: the strap's MAC, e.g. "A0:9E:1A:12:34:56" (bluetoothctl -> scan on).
+    # macOS: the CoreBluetooth UUID bleak prints when scanning.
+    # Empty: scan ~10 s and use the first device named "Polar H10*".
+    device_address: ""
+    # Alternative to the address, works on every OS: the ID in the strap's name
+    # ("Polar H10 18D51C3F" -> "18D51C3F"). Used only when device_address is empty.
+    device_id: ""
+    # Longest wait between reconnect attempts (1, 2, 4, ... seconds up to this).
+    reconnect_backoff_max_s: 30.0
+    # Treat the link as dead if no HR notification arrives for this long.
+    notification_timeout_s: 5.0
+    # Publish /polar_h10/rr_intervals.
+    publish_rr: true
+
+mock_polar_h10_node:
+  ros__parameters:
+    period_s: 60.0
+    publish_rate_hz: 1.0
+    publish_rr: true
