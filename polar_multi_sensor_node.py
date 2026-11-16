@@ -1,3 +1,12 @@
+"""Older single-file 4-strap node. Superseded by polar_ros2/ (see README):
+that package finds straps by device ID on any OS, reconnects with backoff,
+publishes RR intervals / contact / connection state and has a dashboard.
+
+Problems in this file (kept for reference):
+  - POLAR_MACS are placeholders; on macOS bleak needs CoreBluetooth UUIDs, not MACs.
+  - Heart rate was read as data[1] only; when flag bit 0 is set the value is
+    16-bit. Fixed below.
+"""
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Int32
@@ -40,7 +49,10 @@ def make_hr_callback(sensor_id: str, node: MultiPolarHRNode):
     def callback(sender, data: bytearray):
         # Decode standard BLE HR data: byte 0 is flags, byte 1 is HR integer value
         if len(data) > 1:
-            hr_val = data[1]
+            if data[0] & 0x01 and len(data) > 2:   # 16-bit heart rate
+                hr_val = int.from_bytes(data[1:3], 'little')
+            else:
+                hr_val = data[1]
             node.publish_hr(sensor_id, hr_val)
     return callback
 
